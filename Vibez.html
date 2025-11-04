@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Paper.js Wordmark Warper — Brand UI v3</title>
+<script src="https://unpkg.com/paper@0.12.17/dist/paper-full.min.js"></script>
+<style>
+  :root { --bg:#191919; --fg:#f8f2ec; --ui-outline:1px solid var(--fg); }
+
+  html, body { height:100%; margin:0; background:var(--bg); }
+  body {
+    display:flex; align-items:center; justify-content:center; min-height:100vh;
+    font-family:"Courier New", Courier, ui-monospace, Menlo, Consolas, monospace;
+    color:var(--fg); text-transform:uppercase; letter-spacing:.02em;
+  }
+  #stage { display:block; width:960px; height:540px; background:var(--bg); }
+
+  /* Popover */
+  .ui {
+    position:fixed; top:16px; right:16px; z-index:9999;
+    background:var(--bg); color:var(--fg);
+    border:var(--ui-outline); padding:12px; width:300px; box-sizing:border-box;
+    display:grid; grid-template-columns:1fr 1fr 1fr; grid-auto-rows:min-content; gap:8px;
+    user-select:none;
+  }
+  .label { align-self:center; font-size:12px; }
+  .ctrl  { grid-column:2 / 4; justify-self:stretch; }
+  .row-3 { grid-column:1 / 4; }
+
+  /* Swatches & mini button – unified square size */
+  .sq { width:24px; height:24px; border:var(--ui-outline); box-sizing:border-box; }
+
+  .swatch { cursor:pointer; }
+  .palette{
+    position:absolute; right:0; top:28px; display:none;
+    grid-template-columns:repeat(6,22px); gap:6px; padding:10px;
+    background:var(--bg); border:var(--ui-outline); z-index:10000
+  }
+  .chip{ width:22px; height:22px; border:var(--ui-outline); cursor:pointer }
+
+  .miniWrap { grid-column:2/4; justify-self:end; display:flex; gap:8px; }
+  .miniBtn {
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    background:var(--fg); color:var(--bg); border:var(--ui-outline);
+    font-family:"Courier New", Courier, monospace; font-size:16px; line-height:1;
+    width:24px; height:24px;
+  }
+
+  /* Buttons stack */
+  .btn{
+    background:var(--fg); color:var(--bg); border:var(--ui-outline);
+    padding:8px 10px; font-size:12px; cursor:pointer; width:100%; text-align:center;
+    font-family:"Courier New", Courier, monospace;
+  }
+  .btn:active{ transform:translateY(1px) }
+
+  /* Sliders (track = single stroke; square thumb) */
+  input[type="range"]{ -webkit-appearance:none; width:100%; background:transparent; cursor:pointer; }
+  input[type="range"]::-webkit-slider-runnable-track{ height:2px; background:var(--fg); }
+  input[type="range"]::-moz-range-track{ height:2px; background:var(--fg); }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; margin-top:-7px; width:16px; height:16px;
+    border-radius:0; background:var(--fg); border:var(--ui-outline);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:0; background:var(--fg); border:var(--ui-outline);
+  }
+
+  /* Custom checkbox (single box with X corner-to-corner when ON) */
+  .chkWrap { display:flex; justify-content:flex-end; }
+  .chkBox { position:relative; cursor:pointer; }
+  .chkBox.off { background:transparent; }
+  .chkBox.on {
+    background:
+      linear-gradient(45deg,  transparent calc(50% - 1px), var(--fg) 0 calc(50% + 1px), transparent 0),
+      linear-gradient(-45deg, transparent calc(50% - 1px), var(--fg) 0 calc(50% + 1px), transparent 0);
+    background-origin:border-box;
+  }
+  .chkBox { border:var(--ui-outline); width:24px; height:24px; }
+
+  input[type="checkbox"].visuallyHidden{ position:absolute; left:-9999px; }
+</style>
+</head>
+<body>
+
+<canvas id="stage" resize></canvas>
+
+<div class="ui" id="ui">
+  <!-- COLOUR A -->
+  <div class="label">Colour A</div>
+  <div class="ctrl" style="display:flex; justify-content:flex-end; position:relative;">
+    <div class="swatch sq" id="swatchA" title="#f8f2ec"></div>
+    <div class="palette" id="paletteA"></div>
+  </div>
+
+  <!-- COLOUR B -->
+  <div class="label">Colour B</div>
+  <div class="ctrl" style="display:flex; justify-content:flex-end; position:relative;">
+    <div class="swatch sq" id="swatchB" title="#191919"></div>
+    <div class="palette" id="paletteB"></div>
+  </div>
+
+  <!-- PSYCHO mini -->
+  <div class="label">Psycho?</div>
+  <div class="miniWrap">
+    <button class="miniBtn" id="psychoMini" title="PSYCHO?">→</button>
+  </div>
+
+  <!-- GRID toggle -->
+  <div class="label">Grid</div>
+  <div class="ctrl">
+    <div class="chkWrap">
+      <div class="chkBox sq on" id="gridBox"></div>
+      <input type="checkbox" id="togGrid" class="visuallyHidden" checked />
+    </div>
+  </div>
+
+  <!-- BRUSH RADIUS -->
+  <div class="label">Brush Radius</div>
+  <div class="ctrl"><input type="range" id="rad" min="60" max="360" step="1" value="240" /></div>
+
+  <!-- STRENGTH -->
+  <div class="label">Strength</div>
+  <div class="ctrl"><input type="range" id="str" min="0.10" max="1.0" step="0.01" value="0.45" /></div>
+
+  <!-- GRID DENSITY -->
+  <div class="label">Grid Density</div>
+  <div class="ctrl"><input type="range" id="gridD" min="0" max="10" step="1" value="6" /></div>
+
+  <!-- MAIN BUTTONS -->
+  <button class="btn row-3" id="load">Load SVG</button>
+  <button class="btn row-3" id="reset">Reset</button>
+  <button class="btn row-3" id="download">Download SVG</button>
+</div>
+
+<input id="file" type="file" accept=".svg,image/svg+xml" style="display:none"/>
+
+<script>
+/* ===== Brand palette & defaults ===== */
+const BRAND_COLOURS = [
+  "#007fff","#191919","#4f1d2c","#abd2ae","#afd1ed","#e4b4d0",
+  "#e6e4d3","#ed7045","#f8f2ec","#f9f3ef","#ff775c","#ffe633"
+];
+const DEFAULT_A = "#f8f2ec"; // wordmark + grid
+const DEFAULT_B = "#191919"; // background + counters
+
+/* ===== Canvas & grid geometry ===== */
+const VB = { w:960, h:540 };
+const VALID_CELL_SIZES = [60,30,20,15,12,10,  6,5,4,3,2]; // guaranteed square tiling
+let cellIndex = 4; // 12px cells (80x45)
+
+/* Brush defaults */
+let BRUSH_RADIUS = 240;
+let BRUSH_STRENGTH = 0.45;
+const BRUSH_FALLOFF = 2.0;
+
+/* ===== Paper setup ===== */
+const canvas = document.getElementById('stage');
+paper.setup(canvas);
+
+// Layers: bg, art (wordmark + counters), grid (top), overlay (ring)
+const bg = new paper.Path.Rectangle(new paper.Rectangle(0,0,VB.w,VB.h));
+const artLayer = new paper.Layer();
+const gridLayer = new paper.Layer();
+const overlay = new paper.Layer();
+
+/* ---------- state ---------- */
+let colourA = DEFAULT_A, colourB = DEFAULT_B;
+let wordmarkGroup, countersGroup, gridGroup;
+let wmSegs=[], counterSegs=[], gridSegs=[];
+let dragging=false, prev=null;
+let currentSVG = null;
+
+/* ---------- helpers ---------- */
+function isFullBackgroundRect(item){
+  if (!(item instanceof paper.Path)) return false;
+  if (!item.closed) return false;
+  const b = item.bounds;
+  return Math.abs(b.width - VB.w) < 0.6 && Math.abs(b.height - VB.h) < 0.6;
+}
+function hexEqual(a,b){ return (a||"").toLowerCase() === (b||"").toLowerCase(); }
+function currentColsRows(){
+  const s = VALID_CELL_SIZES[cellIndex];
+  return { cols: VB.w / s, rows: VB.h / s };
+}
+function densifyPathCurveWise(path, spacing = 2) {
+  for (let i = 0; i < path.curves.length; i++) {
+    const L = path.curves[i].length;
+    if (L <= spacing) continue;
+    for (let d = spacing; d < L; d += spacing) {
+      const c = path.curves[i];
+      if (!c) break;
+      const t = Math.min(0.9999, d / c.length);
+      c.divideAt(t);
+    }
+  }
+}
+
+/* ---------- import & split (counters are shapes colored like BG) ---------- */
+function rebuildWordmarkAndCounters(svgString){
+  if (!svgString) return;
+  if (wordmarkGroup) wordmarkGroup.remove();
+  if (countersGroup) countersGroup.remove();
+  wmSegs=[]; counterSegs=[];
+
+  const imported = paper.project.importSVG(svgString, { insert:false, expandShapes:false });
+
+  const items = imported.getItems({
+    recursive:true,
+    match: it => (it instanceof paper.PathItem) && !isFullBackgroundRect(it)
+  });
+
+  wordmarkGroup = new paper.Group(); artLayer.addChild(wordmarkGroup);
+  countersGroup = new paper.Group(); artLayer.addChild(countersGroup);
+
+  items.forEach(it=>{
+    let fillHex = "#000000";
+    if (it.fillColor) fillHex = it.fillColor.toCSS(true).toLowerCase();
+    const goesToCounters = hexEqual(fillHex, colourB.toLowerCase()) || hexEqual(fillHex, "#191919");
+
+    if ('fillRule' in it) it.fillRule = 'evenodd';
+
+    const densify = p => densifyPathCurveWise(p, 2);
+    if (it instanceof paper.Path) densify(it);
+    if (it instanceof paper.CompoundPath) it.children.forEach(ch=> ch instanceof paper.Path && densify(ch));
+
+    it.remove();
+    (goesToCounters ? countersGroup : wordmarkGroup).addChild(it);
+  });
+
+  imported.remove();
+
+  // Apply colours
+  wordmarkGroup.getItems({ recursive:true, class:paper.PathItem })
+    .forEach(p=>{ p.fillColor = colourA; p.strokeColor = null; });
+  countersGroup.getItems({ recursive:true, class:paper.PathItem })
+    .forEach(p=>{ p.fillColor = colourB; p.strokeColor = null; });
+
+  // cache segments
+  wordmarkGroup.getItems({ recursive:true, class:paper.Path })
+    .forEach(p=> p.segments.forEach(s=> wmSegs.push({seg:s})));
+  countersGroup.getItems({ recursive:true, class:paper.Path })
+    .forEach(p=> p.segments.forEach(s=> counterSegs.push({seg:s})));
+}
+
+/* ---------- grid (top), square cells that fit canvas exactly ---------- */
+function rebuildGrid(){
+  if (gridGroup) gridGroup.remove();
+  gridSegs=[];
+  gridGroup = new paper.Group(); gridLayer.addChild(gridGroup);
+
+  const { cols, rows } = currentColsRows();
+  const STEPS = 240;
+
+  // horizontals
+  for (let r=0;r<=rows;r++){
+    const y = (r/rows)*VB.h;
+    const path = new paper.Path();
+    for (let s=0;s<=STEPS;s++) path.add(new paper.Point((s/STEPS)*VB.w, y));
+    path.strokeColor = colourA; path.strokeWidth = 1.1;
+    gridGroup.addChild(path);
+  }
+  // verticals
+  for (let c=0;c<=cols;c++){
+    const x = (c/cols)*VB.w;
+    const path = new paper.Path();
+    for (let s=0;s<=STEPS;s++) path.add(new paper.Point(x, (s/STEPS)*VB.h));
+    path.strokeColor = colourA; path.strokeWidth = 1.1;
+    gridGroup.addChild(path);
+  }
+  gridGroup.children.forEach(p=> p.segments.forEach(s=> gridSegs.push({seg:s})));
+}
+
+/* ---------- brush ring (FG @ 50%, follows cursor) ---------- */
+let ring = new paper.Path.Circle(new paper.Point(VB.w/2, VB.h/2), BRUSH_RADIUS);
+function setRingColor(){ ring.strokeColor = new paper.Color(colourA); ring.strokeColor.alpha = 0.5; }
+setRingColor();
+ring.dashArray = [6,6];
+ring.data.r = BRUSH_RADIUS;
+overlay.addChild(ring);
+function setRingRadius(r){ const k = r/(ring.data.r||r); if(k!==1){ ring.scale(k); ring.data.r=r; } }
+
+const tool = new paper.Tool();
+tool.onMouseMove = e => { ring.position = e.point; paper.view.update(); };
+tool.onMouseDown = e => { dragging=true; prev=e.point.clone(); ring.position=e.point; };
+tool.onMouseDrag = e => {
+  if (!dragging || !prev) return;
+  const delta = e.point.subtract(prev);
+  if (delta.length > 0) {
+    const move = delta.multiply(BRUSH_STRENGTH);
+    const apply = (arr)=>{
+      for (let i=0;i<arr.length;i++){
+        const s=arr[i].seg;
+        const d=s.point.getDistance(e.point);
+        if (d<BRUSH_RADIUS){
+          const t=1 - d/BRUSH_RADIUS;
+          s.point = s.point.add(move.multiply(Math.pow(t,BRUSH_FALLOFF)));
+        }
+      }
+    };
+    apply(wmSegs);
+    apply(counterSegs);
+    apply(gridSegs);
+    prev=e.point.clone();
+    paper.view.update();
+  }
+};
+tool.onMouseUp = ()=>{ dragging=false; };
+
+/* ---------- UI wiring ---------- */
+const $ = id => document.getElementById(id);
+const ui = $('ui');
+const swatchA = $('swatchA'), swatchB = $('swatchB');
+const paletteA = $('paletteA'), paletteB = $('paletteB');
+const gridBox = $('gridBox'), toggGrid = $('togGrid');
+const sliderR=$('rad'), sliderS=$('str'), gridD=$('gridD');
+const fileInput = $('file'), psychoMini = $('psychoMini');
+
+function applyColours(A,B){
+  colourA=A; colourB=B;
+  document.documentElement.style.setProperty('--fg', A);
+  document.documentElement.style.setProperty('--bg', B);
+
+  swatchA.style.background=A; swatchB.style.background=B;
+
+  bg.fillColor=B; document.getElementById('stage').style.background=B;
+  if (wordmarkGroup) wordmarkGroup.getItems({ recursive:true, class:paper.PathItem })
+    .forEach(p=>{ p.fillColor = A; p.strokeColor = null; });
+  if (countersGroup) countersGroup.getItems({ recursive:true, class:paper.PathItem })
+    .forEach(p=>{ p.fillColor = B; p.strokeColor = null; });
+  if (gridGroup) gridGroup.children.forEach(p=> p.strokeColor=A);
+
+  setRingColor();
+  paper.view.update();
+}
+
+function buildPalette(container, target, onPick){
+  container.innerHTML='';
+  BRAND_COLOURS.forEach(hex=>{
+    const chip=document.createElement('div');
+    chip.className='chip'; chip.style.background=hex; chip.title=hex;
+    chip.onclick=()=>{ onPick(hex); container.style.display='none'; target.style.background=hex; target.title=hex; };
+    container.appendChild(chip);
+  });
+  document.addEventListener('click', e=>{
+    if(!container.contains(e.target)&&e.target!==target) container.style.display='none';
+  });
+}
+swatchA.onclick = (e)=>{ e.stopPropagation(); paletteA.style.display = (paletteA.style.display==='grid'?'none':'grid'); };
+swatchB.onclick = (e)=>{ e.stopPropagation(); paletteB.style.display = (paletteB.style.display==='grid'?'none':'grid'); };
+buildPalette(paletteA, swatchA, hex=> applyColours(hex, colourB));
+buildPalette(paletteB, swatchB, hex=> applyColours(colourA, hex));
+
+psychoMini.onclick = ()=>{
+  let ia=Math.floor(Math.random()*BRAND_COLOURS.length);
+  let ib=Math.floor(Math.random()*BRAND_COLOURS.length);
+  if (ia===ib) ib=(ib+1)%BRAND_COLOURS.length;
+  applyColours(BRAND_COLOURS[ia], BRAND_COLOURS[ib]);
+};
+
+function syncGridBox(){
+  if (toggGrid.checked) gridBox.classList.remove('off'), gridBox.classList.add('on');
+  else gridBox.classList.remove('on'), gridBox.classList.add('off');
+  if (gridGroup) gridGroup.visible = toggGrid.checked;
+  paper.view.update();
+}
+gridBox.onclick = ()=>{ toggGrid.checked = !toggGrid.checked; syncGridBox(); };
+toggGrid.onchange = syncGridBox;
+
+sliderR.oninput = ()=>{ BRUSH_RADIUS = Number(sliderR.value); setRingRadius(BRUSH_RADIUS); paper.view.update(); };
+sliderS.oninput = ()=>{ BRUSH_STRENGTH = Number(sliderS.value); };
+gridD.oninput = ()=>{ cellIndex = Math.max(0, Math.min(VALID_CELL_SIZES.length-1, Number(gridD.value))); rebuildGrid(); paper.view.update(); };
+
+$('reset').onclick = ()=>{
+  applyColours(DEFAULT_A, DEFAULT_B);
+  rebuildWordmarkAndCounters(currentSVG);
+  cellIndex = 4; gridD.value = cellIndex;
+  rebuildGrid();
+  toggGrid.checked = true; syncGridBox();
+  BRUSH_RADIUS = 240; BRUSH_STRENGTH = 0.45; sliderR.value=BRUSH_RADIUS; sliderS.value=BRUSH_STRENGTH;
+  setRingRadius(BRUSH_RADIUS); paper.view.update();
+};
+
+$('download').onclick = ()=>{
+  const svg = paper.project.exportSVG({ asString:true, bounds:'view', matchShapes:true });
+  const blob = new Blob([svg], { type:'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='warped-wordmark.svg';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+};
+
+$('load').onclick = ()=> fileInput.click();
+fileInput.onchange = async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  currentSVG = text;
+  rebuildWordmarkAndCounters(currentSVG);
+  applyColours(colourA, colourB);
+  paper.view.update();
+};
+
+/* ---- draggable popover (drag anywhere that is not an interactive control) ---- */
+(function makeDraggable(panel){
+  let dragging = false, sx=0, sy=0, ox=0, oy=0;
+  const isInteractive = el => el.closest('input,button,.swatch,.chip,.palette,.chkBox');
+  panel.addEventListener('mousedown', (e)=>{
+    if (isInteractive(e.target)) return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    // switch to left/top for free positioning
+    panel.style.left = rect.left + 'px';
+    panel.style.top  = rect.top  + 'px';
+    panel.style.right = 'auto';
+    sx = e.clientX; sy = e.clientY; ox = rect.left; oy = rect.top;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e)=>{
+    if (!dragging) return;
+    const nx = ox + (e.clientX - sx);
+    const ny = oy + (e.clientY - sy);
+    panel.style.left = nx + 'px';
+    panel.style.top  = ny + 'px';
+  });
+  window.addEventListener('mouseup', ()=> dragging=false);
+})(ui);
+
+/* ===== boot ===== */
+bg.fillColor = colourB;
+document.documentElement.style.setProperty('--fg', colourA);
+document.documentElement.style.setProperty('--bg', colourB);
+rebuildGrid();
+applyColours(colourA, colourB);       // ensure swatches show correct colours on launch
+syncGridBox();                         // set custom checkbox visual
+paper.view.viewSize = new paper.Size(VB.w, VB.h);
+paper.view.update();
+</script>
+</body>
+</html>
